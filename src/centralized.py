@@ -22,6 +22,10 @@ from src.trainer import evaluate, train_one_epoch
 # Import the project's reusable functions for one training epoch and evaluation.
 
 
+# ============================================================
+# Training information that will be saved for every epoch.
+# ============================================================
+
 HISTORY_FIELDNAMES = [
     "epoch",
     "learning_rate",
@@ -34,6 +38,11 @@ HISTORY_FIELDNAMES = [
 ]
 # Define the exact column order used when saving training history to CSV.
 
+
+# ============================================================
+# FUNCTION 1:
+# Save the COMPLETE training history into a CSV file.
+# ============================================================
 
 def save_history_csv(
     history: List[Dict[str, float]],
@@ -66,6 +75,11 @@ def save_history_csv(
     print(f"Training history saved to: {path}")
 
 
+# ============================================================
+# FUNCTION 2:
+# Add the result of ONE new epoch to the CSV file.
+# ============================================================
+
 def append_history_row(
     epoch_result: Dict[str, float],
     history_path: str,
@@ -97,6 +111,15 @@ def append_history_row(
         # Append the metrics of the current epoch.
         writer.writerow(epoch_result)
 
+
+# ============================================================
+# FUNCTION 3:
+# Choose how the Learning Rate changes during training.
+#
+# cosine = gradual smooth decrease
+# step   = decrease after fixed intervals
+# none   = keep Learning Rate constant
+# ============================================================
 
 def build_scheduler(
     optimizer: torch.optim.Optimizer,
@@ -148,6 +171,13 @@ def build_scheduler(
         "scheduler_name must be one of: cosine, step, none."
     )
 
+
+# ============================================================
+# FUNCTION 4:
+# Save the current training state as a checkpoint.
+#
+# This allows us to load the model later or continue training.
+# ============================================================
 
 def save_training_checkpoint(
     model: nn.Module,
@@ -216,6 +246,21 @@ def save_training_checkpoint(
     )
 
 
+# ============================================================
+# FUNCTION 5:
+# MAIN CENTRALIZED TRAINING FUNCTION
+#
+# Overall idea:
+#
+# Prepare training
+# -> Train
+# -> Validation
+# -> Test
+# -> Save results
+# -> Save best model
+# -> Final evaluation
+# ============================================================
+
 def train_centralized(
     model: nn.Module,
     train_loader: DataLoader,
@@ -262,6 +307,11 @@ def train_centralized(
     Returns the history, final test metrics, best epoch, and checkpoint paths.
     """
 
+    # ========================================================
+    # STEP 1:
+    # Check that the training settings are valid.
+    # ========================================================
+
     # The total number of training epochs must be positive.
     if epochs <= 0:
         raise ValueError("epochs must be greater than zero.")
@@ -297,6 +347,11 @@ def train_centralized(
         raise ValueError(
             "log_interval must be greater than zero."
         )
+
+    # ========================================================
+    # STEP 2:
+    # Prepare model, loss function, optimizer, and scheduler.
+    # ========================================================
 
     # Move the model to the selected CPU or CUDA device.
     model = model.to(device)
@@ -359,6 +414,11 @@ def train_centralized(
 
     # Training normally starts from epoch 1.
     start_epoch = 1
+
+    # ========================================================
+    # STEP 3:
+    # Resume previous training if a checkpoint is provided.
+    # ========================================================
 
     # Resume restores all state needed for epoch and scheduler continuity.
     if resume_path is not None:
@@ -436,6 +496,14 @@ def train_centralized(
         )
         print(f"Requested total epochs: {epochs}")
 
+    # ========================================================
+    # STEP 4:
+    # Main epoch loop.
+    #
+    # Each epoch:
+    # Train -> Validation -> Test -> Save results
+    # ========================================================
+
     # Run every remaining epoch from start_epoch up to the requested total.
     for epoch in range(start_epoch, epochs + 1):
 
@@ -450,6 +518,9 @@ def train_centralized(
             f"{current_learning_rate:.8f}"
         )
 
+        # ---------------- TRAIN ----------------
+        # Train the model using the training dataset.
+
         # Train the model for one complete epoch.
         train_metrics = train_one_epoch(
             model=model,
@@ -460,6 +531,9 @@ def train_centralized(
             max_batches=max_train_batches,
             log_interval=log_interval,
         )
+
+        # ---------------- VALIDATION ----------------
+        # Used to decide which checkpoint is the best.
 
         # Measure performance on validation data.
         # These metrics are used to select the best checkpoint.
@@ -472,6 +546,9 @@ def train_centralized(
             log_interval=log_interval,
         )
 
+        # ---------------- TEST ----------------
+        # Used for reporting the model performance.
+
         # Measure performance on test data for reporting and final plots.
         test_metrics = evaluate(
             model=model,
@@ -481,6 +558,9 @@ def train_centralized(
             max_batches=max_test_batches,
             log_interval=log_interval,
         )
+
+        # ---------------- SAVE METRICS ----------------
+        # Collect the results from this epoch.
 
         # Collect all metrics from the current epoch into one dictionary.
         epoch_result = {
@@ -541,6 +621,12 @@ def train_centralized(
             history_path=history_path,
         )
 
+        # ====================================================
+        # STEP 5:
+        # Save a new BEST checkpoint only when
+        # validation accuracy improves.
+        # ====================================================
+
         # Validation selects the best checkpoint; test data remains evaluation-only.
         if (
             validation_metrics["accuracy"]
@@ -594,6 +680,11 @@ def train_centralized(
             f"{last_checkpoint_path}"
         )
 
+    # ========================================================
+    # STEP 6:
+    # Load the BEST model after all epochs are finished.
+    # ========================================================
+
     # Locate the checkpoint corresponding to the best validation accuracy.
     best_checkpoint_file = Path(checkpoint_path)
 
@@ -619,6 +710,11 @@ def train_centralized(
     print("\nLoaded best checkpoint.")
     print("Starting final test evaluation")
 
+    # ========================================================
+    # STEP 7:
+    # Final evaluation on the test set.
+    # ========================================================
+
     # Perform the final test evaluation using the best validation-selected model.
     final_test_metrics = evaluate(
         model=model,
@@ -642,6 +738,11 @@ def train_centralized(
         history=history,
         history_path=history_path,
     )
+
+    # ========================================================
+    # STEP 8:
+    # Return the important results of the experiment.
+    # ========================================================
 
     # Return all important results and paths for later reporting or analysis.
     return {
