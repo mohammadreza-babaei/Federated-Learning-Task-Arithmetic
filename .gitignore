@@ -1,0 +1,63 @@
+# ==============================
+# Python virtual environments
+# ==============================
+.venv
+.venv/
+venv
+venv/
+.venv-old
+.venv-old/
+venv-old
+venv-old/
+env
+env/
+
+# ==============================
+# Python cache
+# ==============================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ==============================
+# Dataset files
+# Keep dataset source code, ignore large dataset files
+# ==============================
+data/cifar-100-python/
+data/cifar-100-python.tar.gz
+data/*.tar.gz
+data/*.zip
+
+# ==============================
+# Checkpoints / model weights
+# ==============================
+experiments/checkpoints/
+*.pt
+*.pth
+*.ckpt
+
+# ==============================
+# Experiment outputs
+# ==============================
+experiments/logs/
+experiments/results/
+experiments/runs/
+
+# ==============================
+# IDE files
+# ==============================
+.vscode/
+.idea/
+
+# ==============================
+# OS files
+# ==============================
+.DS_Store
+Thumbs.db
+
+# ==============================
+# Temporary files
+# ==============================
+*.tmp
+*.temp
+*.log
