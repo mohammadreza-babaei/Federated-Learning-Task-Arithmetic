@@ -1,0 +1,6 @@
+"checkpoint","validation_accuracy","test_accuracy"
+"best_sparse_highest_magnitude_sr0.1_cr10_cb10.pt","0.1164","0.118"
+"best_sparse_least_sensitive_sr0.1_cr10_cb10.pt","0.708","0.7161"
+"best_sparse_lowest_magnitude_sr0.1_cr10_cb10.pt","0.1438","0.1326"
+"best_sparse_most_sensitive_sr0.1_cr10_cb10.pt","0.1034","0.0916"
+"best_sparse_random_sr0.1_cr10_cb10.pt","0.1272","0.124"

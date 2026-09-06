@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Dict, List, Optional
+import csv
 
 import torch
 import torch.nn as nn
@@ -8,19 +9,113 @@ from torch.utils.data import DataLoader
 from src.trainer import evaluate, train_one_epoch
 
 
+HISTORY_FIELDNAMES = [
+    "epoch",
+    "learning_rate",
+    "train_loss",
+    "train_accuracy",
+    "validation_loss",
+    "validation_accuracy",
+    "test_loss",
+    "test_accuracy",
+]
+
+
+def save_history_csv(
+    history: List[Dict[str, float]],
+    history_path: str,
+) -> None:
+    """Write the complete training history to a CSV file."""
+
+    path = Path(history_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with path.open("w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.DictWriter(
+            csv_file,
+            fieldnames=HISTORY_FIELDNAMES,
+        )
+        writer.writeheader()
+        writer.writerows(history)
+
+    print(f"Training history saved to: {path}")
+
+
+def append_history_row(
+    epoch_result: Dict[str, float],
+    history_path: str,
+) -> None:
+    """Append one epoch result to the history CSV."""
+
+    path = Path(history_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    file_exists = path.exists() and path.stat().st_size > 0
+
+    with path.open("a", newline="", encoding="utf-8") as csv_file:
+        writer = csv.DictWriter(
+            csv_file,
+            fieldnames=HISTORY_FIELDNAMES,
+        )
+
+        if not file_exists:
+            writer.writeheader()
+
+        writer.writerow(epoch_result)
+
+
+def build_scheduler(
+    optimizer: torch.optim.Optimizer,
+    scheduler_name: str,
+    epochs: int,
+    scheduler_step_size: int,
+    scheduler_gamma: float,
+):
+    """Create the requested learning-rate scheduler."""
+
+    normalized_name = scheduler_name.lower()
+
+    if normalized_name == "cosine":
+        return torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer=optimizer,
+            T_max=epochs,
+            eta_min=0.0,
+        )
+
+    if normalized_name == "step":
+        return torch.optim.lr_scheduler.StepLR(
+            optimizer=optimizer,
+            step_size=scheduler_step_size,
+            gamma=scheduler_gamma,
+        )
+
+    if normalized_name == "none":
+        return torch.optim.lr_scheduler.LambdaLR(
+            optimizer=optimizer,
+            lr_lambda=lambda _: 1.0,
+        )
+
+    raise ValueError(
+        "scheduler_name must be one of: cosine, step, none."
+    )
+
+
 def save_training_checkpoint(
     model: nn.Module,
     optimizer: torch.optim.Optimizer,
-    scheduler: torch.optim.lr_scheduler.LRScheduler,
+    scheduler,
     epoch: int,
     best_validation_accuracy: float,
     history: List[Dict[str, float]],
     checkpoint_path: str,
+    training_config: Dict[str, object],
 ) -> None:
-    """Save a complete checkpoint for resuming training."""
+    """Save a complete checkpoint for evaluation and resume."""
 
     path = Path(checkpoint_path)
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    latest_metrics = history[-1] if history else {}
 
     torch.save(
         {
@@ -29,7 +124,14 @@ def save_training_checkpoint(
             "optimizer_state_dict": optimizer.state_dict(),
             "scheduler_state_dict": scheduler.state_dict(),
             "best_validation_accuracy": best_validation_accuracy,
+            "validation_loss": latest_metrics.get("validation_loss"),
+            "validation_accuracy": latest_metrics.get(
+                "validation_accuracy"
+            ),
+            "test_loss": latest_metrics.get("test_loss"),
+            "test_accuracy": latest_metrics.get("test_accuracy"),
             "history": history,
+            "training_config": training_config,
         },
         path,
     )
@@ -45,11 +147,17 @@ def train_centralized(
     learning_rate: float = 0.01,
     momentum: float = 0.9,
     weight_decay: float = 0.0,
+    scheduler_name: str = "cosine",
+    scheduler_step_size: int = 10,
+    scheduler_gamma: float = 0.1,
     checkpoint_path: str = (
         "experiments/checkpoints/best_model.pt"
     ),
     last_checkpoint_path: str = (
         "experiments/checkpoints/last_centralized.pt"
+    ),
+    history_path: str = (
+        "experiments/centralized_history.csv"
     ),
     resume_path: Optional[str] = None,
     max_train_batches: Optional[int] = None,
@@ -60,13 +168,13 @@ def train_centralized(
     """
     Train and evaluate the centralized CIFAR-100 baseline.
 
-    If resume_path is provided, training continues from the saved epoch.
+    Every epoch is written to a CSV file. The best checkpoint is
+    selected only by validation accuracy. Test metrics are recorded
+    for final plots but must not be used for hyperparameter selection.
     """
 
     if epochs <= 0:
-        raise ValueError(
-            "epochs must be greater than zero."
-        )
+        raise ValueError("epochs must be greater than zero.")
 
     if learning_rate <= 0:
         raise ValueError(
@@ -74,13 +182,19 @@ def train_centralized(
         )
 
     if momentum < 0:
-        raise ValueError(
-            "momentum cannot be negative."
-        )
+        raise ValueError("momentum cannot be negative.")
 
     if weight_decay < 0:
+        raise ValueError("weight_decay cannot be negative.")
+
+    if scheduler_step_size <= 0:
         raise ValueError(
-            "weight_decay cannot be negative."
+            "scheduler_step_size must be greater than zero."
+        )
+
+    if not 0.0 < scheduler_gamma <= 1.0:
+        raise ValueError(
+            "scheduler_gamma must be in the interval (0, 1]."
         )
 
     if log_interval <= 0:
@@ -89,7 +203,6 @@ def train_centralized(
         )
 
     model = model.to(device)
-
     criterion = nn.CrossEntropyLoss()
 
     trainable_parameters = [
@@ -110,19 +223,27 @@ def train_centralized(
         weight_decay=weight_decay,
     )
 
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    scheduler = build_scheduler(
         optimizer=optimizer,
-        T_max=epochs,
-        eta_min=0.0,
+        scheduler_name=scheduler_name,
+        epochs=epochs,
+        scheduler_step_size=scheduler_step_size,
+        scheduler_gamma=scheduler_gamma,
     )
+
+    training_config: Dict[str, object] = {
+        "epochs": epochs,
+        "learning_rate": learning_rate,
+        "momentum": momentum,
+        "weight_decay": weight_decay,
+        "scheduler_name": scheduler_name,
+        "scheduler_step_size": scheduler_step_size,
+        "scheduler_gamma": scheduler_gamma,
+    }
 
     history: List[Dict[str, float]] = []
     best_validation_accuracy = -1.0
     start_epoch = 1
-
-    # ---------------------------------------------------------
-    # Resume training
-    # ---------------------------------------------------------
 
     if resume_path is not None:
         resume_file = Path(resume_path)
@@ -138,71 +259,53 @@ def train_centralized(
             weights_only=False,
         )
 
-        model.load_state_dict(
-            checkpoint["model_state_dict"]
-        )
-
+        model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(
             checkpoint["optimizer_state_dict"]
         )
-
         scheduler.load_state_dict(
             checkpoint["scheduler_state_dict"]
         )
 
-        start_epoch = int(
-            checkpoint["epoch"]
-        ) + 1
-
+        start_epoch = int(checkpoint["epoch"]) + 1
         best_validation_accuracy = float(
             checkpoint.get(
                 "best_validation_accuracy",
                 -1.0,
             )
         )
+        history = checkpoint.get("history", [])
 
-        history = checkpoint.get(
-            "history",
-            [],
-        )
-
-        print(
-            f"\nResumed training from: {resume_path}"
-        )
-
-        print(
-            f"Last completed epoch: "
-            f"{start_epoch - 1}"
-        )
-
+        print(f"\nResumed training from: {resume_path}")
+        print(f"Last completed epoch: {start_epoch - 1}")
         print(
             f"Training will continue from epoch "
             f"{start_epoch}/{epochs}"
         )
+
+        save_history_csv(
+            history=history,
+            history_path=history_path,
+        )
+    else:
+        # A new run must not append to an old CSV accidentally.
+        history_file = Path(history_path)
+        if history_file.exists():
+            history_file.unlink()
 
     if start_epoch > epochs:
         print(
             "\nThe checkpoint has already completed "
             f"epoch {start_epoch - 1}."
         )
-
-        print(
-            f"Requested total epochs: {epochs}"
-        )
-
-    # ---------------------------------------------------------
-    # Training
-    # ---------------------------------------------------------
+        print(f"Requested total epochs: {epochs}")
 
     for epoch in range(start_epoch, epochs + 1):
-        current_learning_rate = (
+        current_learning_rate = float(
             optimizer.param_groups[0]["lr"]
         )
 
-        print(
-            f"\nStarting epoch {epoch}/{epochs}"
-        )
-
+        print(f"\nStarting epoch {epoch}/{epochs}")
         print(
             "Current learning rate: "
             f"{current_learning_rate:.8f}"
@@ -227,14 +330,19 @@ def train_centralized(
             log_interval=log_interval,
         )
 
+        test_metrics = evaluate(
+            model=model,
+            dataloader=test_loader,
+            criterion=criterion,
+            device=device,
+            max_batches=max_test_batches,
+            log_interval=log_interval,
+        )
+
         epoch_result = {
             "epoch": float(epoch),
-            "learning_rate": float(
-                current_learning_rate
-            ),
-            "train_loss": float(
-                train_metrics["loss"]
-            ),
+            "learning_rate": current_learning_rate,
+            "train_loss": float(train_metrics["loss"]),
             "train_accuracy": float(
                 train_metrics["accuracy"]
             ),
@@ -244,6 +352,10 @@ def train_centralized(
             "validation_accuracy": float(
                 validation_metrics["accuracy"]
             ),
+            "test_loss": float(test_metrics["loss"]),
+            "test_accuracy": float(
+                test_metrics["accuracy"]
+            ),
         }
 
         history.append(epoch_result)
@@ -251,14 +363,21 @@ def train_centralized(
         print(
             f"Epoch {epoch}/{epochs} completed | "
             f"LR: {current_learning_rate:.8f} | "
-            f"Train loss: "
-            f"{train_metrics['loss']:.4f} | "
+            f"Train loss: {train_metrics['loss']:.4f} | "
             f"Train accuracy: "
             f"{train_metrics['accuracy']:.4f} | "
             f"Validation loss: "
             f"{validation_metrics['loss']:.4f} | "
             f"Validation accuracy: "
-            f"{validation_metrics['accuracy']:.4f}"
+            f"{validation_metrics['accuracy']:.4f} | "
+            f"Test loss: {test_metrics['loss']:.4f} | "
+            f"Test accuracy: "
+            f"{test_metrics['accuracy']:.4f}"
+        )
+
+        append_history_row(
+            epoch_result=epoch_result,
+            history_path=history_path,
         )
 
         if (
@@ -279,6 +398,7 @@ def train_centralized(
                 ),
                 history=history,
                 checkpoint_path=checkpoint_path,
+                training_config=training_config,
             )
 
             print(
@@ -288,7 +408,6 @@ def train_centralized(
 
         scheduler.step()
 
-        # Save after every epoch for resume.
         save_training_checkpoint(
             model=model,
             optimizer=optimizer,
@@ -299,6 +418,7 @@ def train_centralized(
             ),
             history=history,
             checkpoint_path=last_checkpoint_path,
+            training_config=training_config,
         )
 
         print(
@@ -306,13 +426,7 @@ def train_centralized(
             f"{last_checkpoint_path}"
         )
 
-    # ---------------------------------------------------------
-    # Load best model and run final test
-    # ---------------------------------------------------------
-
-    best_checkpoint_file = Path(
-        checkpoint_path
-    )
+    best_checkpoint_file = Path(checkpoint_path)
 
     if not best_checkpoint_file.exists():
         raise FileNotFoundError(
@@ -330,15 +444,10 @@ def train_centralized(
         best_checkpoint["model_state_dict"]
     )
 
-    print(
-        "\nLoaded best checkpoint."
-    )
+    print("\nLoaded best checkpoint.")
+    print("Starting final test evaluation")
 
-    print(
-        "Starting final test evaluation"
-    )
-
-    test_metrics = evaluate(
+    final_test_metrics = evaluate(
         model=model,
         dataloader=test_loader,
         criterion=criterion,
@@ -348,27 +457,31 @@ def train_centralized(
     )
 
     print(
-        f"Test loss: {test_metrics['loss']:.4f} | "
-        f"Test accuracy: "
-        f"{test_metrics['accuracy']:.4f}"
+        f"Final test loss: "
+        f"{final_test_metrics['loss']:.4f} | "
+        f"Final test accuracy: "
+        f"{final_test_metrics['accuracy']:.4f}"
+    )
+
+    save_history_csv(
+        history=history,
+        history_path=history_path,
     )
 
     return {
         "history": history,
-        "best_epoch": int(
-            best_checkpoint["epoch"]
-        ),
+        "history_path": history_path,
+        "best_epoch": int(best_checkpoint["epoch"]),
         "best_validation_accuracy": float(
-            best_validation_accuracy
+            best_checkpoint["best_validation_accuracy"]
         ),
-        "test_loss": float(
-            test_metrics["loss"]
-        ),
+        "test_loss": float(final_test_metrics["loss"]),
         "test_accuracy": float(
-            test_metrics["accuracy"]
+            final_test_metrics["accuracy"]
         ),
         "checkpoint_path": checkpoint_path,
         "last_checkpoint_path": (
             last_checkpoint_path
         ),
+        "training_config": training_config,
     }

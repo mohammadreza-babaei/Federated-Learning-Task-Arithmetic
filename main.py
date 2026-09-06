@@ -209,6 +209,28 @@ def parse_args() -> argparse.Namespace:
         help="Optimizer weight decay.",
     )
 
+    parser.add_argument(
+        "--scheduler-name",
+        type=str,
+        default="cosine",
+        choices=["cosine", "step", "none"],
+        help="Learning-rate scheduler name.",
+    )
+
+    parser.add_argument(
+        "--scheduler-step-size",
+        type=int,
+        default=10,
+        help="Step size used by the step scheduler.",
+    )
+
+    parser.add_argument(
+        "--scheduler-gamma",
+        type=float,
+        default=0.1,
+        help="Decay factor used by the step scheduler.",
+    )
+
     # =========================================================
     # Centralized checkpoint arguments
     # =========================================================
@@ -234,6 +256,13 @@ def parse_args() -> argparse.Namespace:
             "Path for the latest centralized checkpoint. "
             "This checkpoint is saved after every epoch."
         ),
+    )
+
+    parser.add_argument(
+        "--history-path",
+        type=str,
+        default="experiments/centralized_history.csv",
+        help="Path for centralized epoch history CSV.",
     )
 
     parser.add_argument(
@@ -426,17 +455,18 @@ def set_random_seed(seed: int) -> None:
 def create_checkpoint_directories(
     args: argparse.Namespace,
 ) -> None:
-    """Create all checkpoint directories when needed."""
+    """Create all output directories when needed."""
 
-    checkpoint_paths = [
+    output_paths = [
         Path(args.checkpoint_path),
         Path(args.last_checkpoint_path),
+        Path(args.history_path),
         Path(args.federated_checkpoint_path),
         Path(args.last_federated_checkpoint_path),
     ]
 
-    for checkpoint_path in checkpoint_paths:
-        checkpoint_path.parent.mkdir(
+    for output_path in output_paths:
+        output_path.parent.mkdir(
             parents=True,
             exist_ok=True,
         )
@@ -526,6 +556,16 @@ def validate_arguments(
     if args.weight_decay < 0:
         raise ValueError(
             "--weight-decay cannot be negative."
+        )
+
+    if args.scheduler_step_size <= 0:
+        raise ValueError(
+            "--scheduler-step-size must be greater than zero."
+        )
+
+    if not 0 < args.scheduler_gamma <= 1:
+        raise ValueError(
+            "--scheduler-gamma must be between 0 and 1."
         )
 
     if args.num_workers < 0:
@@ -671,6 +711,9 @@ def print_general_configuration(
     print(f"Learning rate: {args.learning_rate}")
     print(f"Momentum: {args.momentum}")
     print(f"Weight decay: {args.weight_decay}")
+    print(f"Scheduler: {args.scheduler_name}")
+    print(f"Scheduler step size: {args.scheduler_step_size}")
+    print(f"Scheduler gamma: {args.scheduler_gamma}")
     print(f"Pretrained: {args.pretrained}")
     print(f"Freeze backbone: {args.freeze_backbone}")
 
@@ -774,6 +817,11 @@ def main() -> None:
             f"{args.last_checkpoint_path}"
         )
 
+        print(
+            "History path: "
+            f"{args.history_path}"
+        )
+
         results = train_centralized(
             model=model,
             train_loader=train_loader,
@@ -784,10 +832,14 @@ def main() -> None:
             learning_rate=args.learning_rate,
             momentum=args.momentum,
             weight_decay=args.weight_decay,
+            scheduler_name=args.scheduler_name,
+            scheduler_step_size=args.scheduler_step_size,
+            scheduler_gamma=args.scheduler_gamma,
             checkpoint_path=args.checkpoint_path,
             last_checkpoint_path=(
                 args.last_checkpoint_path
             ),
+            history_path=args.history_path,
             resume_path=args.resume,
             max_train_batches=(
                 args.max_train_batches
@@ -821,6 +873,11 @@ def main() -> None:
         print(
             "Last checkpoint: "
             f"{results['last_checkpoint_path']}"
+        )
+
+        print(
+            "History file: "
+            f"{results['history_path']}"
         )
 
         return
