@@ -1,3 +1,5 @@
+"""DINO ViT-S/16 feature extraction and CIFAR-100 classification head."""
+
 from typing import Any
 
 import torch
@@ -5,7 +7,11 @@ import torch.nn as nn
 
 
 class DinoViTS16CIFAR100(nn.Module):
-    """Official DINO ViT-S/16 backbone with a CIFAR-100 classifier head."""
+    """Wrap the DINO backbone with a CIFAR-100 classification head.
+
+    The wrapper accepts common DINO output formats and normalizes them to one
+    feature vector per image before classification.
+    """
 
     def __init__(
         self,
@@ -32,7 +38,7 @@ class DinoViTS16CIFAR100(nn.Module):
             self.freeze_backbone()
 
     def _extract_features(self, output: Any) -> torch.Tensor:
-        """Convert the backbone output into one feature vector per image."""
+        """Extract and validate one CLS-style feature vector per image."""
 
         if isinstance(output, dict):
             if "x_norm_clstoken" in output:
@@ -84,7 +90,7 @@ class DinoViTS16CIFAR100(nn.Module):
         return output
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Return CIFAR-100 classification logits."""
+        """Return unnormalized logits for the configured CIFAR-100 classes."""
 
         # For the official facebookresearch/dino implementation,
         # forward() normally returns the CLS-token feature vector.
@@ -114,7 +120,7 @@ class DinoViTS16CIFAR100(nn.Module):
 
 
 def load_official_dino_vits16(pretrained: bool = True) -> nn.Module:
-    """Load the official DINO ViT-S/16 architecture using torch.hub."""
+    """Load the official DINO ViT-S/16 architecture through ``torch.hub``."""
 
     try:
         backbone = torch.hub.load(
@@ -142,7 +148,7 @@ def build_dino_vits16_cifar100(
     freeze_backbone: bool = False,
     pretrained: bool = True,
 ) -> DinoViTS16CIFAR100:
-    """Build official DINO ViT-S/16 with a 100-class classification head."""
+    """Load DINO and return the CIFAR-100 classifier wrapper."""
 
     backbone = load_official_dino_vits16(pretrained=pretrained)
 

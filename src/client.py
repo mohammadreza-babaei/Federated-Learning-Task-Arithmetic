@@ -1,3 +1,5 @@
+"""Client-side model ownership and fixed-step local optimization."""
+
 from copy import deepcopy
 from typing import Dict, Optional
 
@@ -9,15 +11,15 @@ from src.sparse_sgd import SparseSGDM
 
 
 class FederatedClient:
-    """
-    A single federated learning client.
+    """A single federated learning client.
 
     Supports:
         - Standard SGD
         - SparseSGDM with a gradient mask
 
     Client models are stored on CPU and moved to the training
-    device only while that client is performing local training.
+    device only while that client is performing local training. Its optimizer
+    state persists across rounds, allowing momentum to accumulate locally.
     """
 
     def __init__(
@@ -169,7 +171,7 @@ class FederatedClient:
         global_model: nn.Module,
     ) -> None:
         """
-        Receive the latest global model weights.
+        Receive the latest global model weights from the server.
 
         The client model remains on CPU.
         """
@@ -212,7 +214,9 @@ class FederatedClient:
         local_steps corresponds to J in the project specification.
         One local step means one mini-batch update.
 
-        Only the currently training client occupies GPU memory.
+        Only the currently training client occupies GPU memory. If the loader
+        is exhausted before J steps, iteration restarts so exactly J updates
+        are still performed.
         """
 
         if local_steps <= 0:

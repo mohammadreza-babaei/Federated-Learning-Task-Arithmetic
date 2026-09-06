@@ -1,3 +1,5 @@
+"""Fisher-based parameter sensitivity estimation for mask calibration."""
+
 from typing import Dict, Optional
 
 import torch
@@ -8,9 +10,7 @@ from torch.utils.data import DataLoader
 def initialize_sensitivity_scores(
     model: nn.Module,
 ) -> Dict[str, torch.Tensor]:
-    """
-    Create one zero-filled sensitivity tensor for each trainable parameter.
-    """
+    """Create zero-filled score tensors aligned with trainable parameters."""
 
     return {
         name: torch.zeros_like(
@@ -33,7 +33,8 @@ def compute_fisher_sensitivity(
     Approximate the diagonal Fisher Information Matrix.
 
     For each trainable parameter, the sensitivity score is estimated
-    by averaging the squared gradients over calibration batches.
+    by averaging the squared gradients over calibration batches. Larger values
+    indicate parameters whose local loss is more sensitive to perturbation.
     """
 
     if max_batches is not None and max_batches <= 0:
@@ -101,9 +102,7 @@ def compute_fisher_sensitivity(
 def average_sensitivity_scores(
     sensitivity_rounds: list[Dict[str, torch.Tensor]],
 ) -> Dict[str, torch.Tensor]:
-    """
-    Average sensitivity scores obtained from multiple calibration rounds.
-    """
+    """Average per-parameter Fisher scores across calibration rounds."""
 
     if not sensitivity_rounds:
         raise ValueError(

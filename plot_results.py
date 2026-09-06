@@ -1,3 +1,5 @@
+"""Plot validation and test accuracy for each recorded mask strategy."""
+
 from pathlib import Path
 
 import matplotlib
@@ -19,6 +21,7 @@ STRATEGY_ORDER = [
 
 
 def extract_mask_strategy(checkpoint_name: str) -> str | None:
+    """Identify a supported mask strategy from a checkpoint filename."""
     checkpoint_name = checkpoint_name.lower()
 
     for strategy in STRATEGY_ORDER:
@@ -35,6 +38,7 @@ def plot_accuracy_comparison(
     labels: list[str],
     output_dir: Path,
 ) -> plt.Figure:
+    """Create and save a bar chart for one accuracy metric."""
     fig, ax = plt.subplots(figsize=(10, 6))
 
     bars = ax.bar(
@@ -81,6 +85,7 @@ def plot_accuracy_comparison(
 
 
 def main() -> None:
+    """Read the comparison CSV and save validation/test strategy charts."""
     base_dir = Path(__file__).resolve().parent
     experiments_dir = base_dir / "experiments"
     csv_path = (

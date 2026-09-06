@@ -1,3 +1,5 @@
+"""Reusable mini-batch training and evaluation loops."""
+
 from typing import Dict, Optional
 
 import torch
@@ -24,7 +26,11 @@ def train_one_epoch(
     max_batches: Optional[int] = None,
     log_interval: int = 10,
 ) -> Dict[str, float]:
-    """Train the model for one epoch or for a limited number of batches."""
+    """Run updates over one epoch and return sample-weighted metrics.
+
+    ``max_batches`` supports short smoke tests without changing full-epoch
+    behavior.
+    """
 
     if max_batches is not None and max_batches <= 0:
         raise ValueError("max_batches must be greater than zero or None.")
@@ -88,7 +94,7 @@ def evaluate(
     max_batches: Optional[int] = None,
     log_interval: int = 10,
 ) -> Dict[str, float]:
-    """Evaluate the model fully or on a limited number of batches."""
+    """Evaluate without gradients and return sample-weighted metrics."""
 
     if max_batches is not None and max_batches <= 0:
         raise ValueError("max_batches must be greater than zero or None.")

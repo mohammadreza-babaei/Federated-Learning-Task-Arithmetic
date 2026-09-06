@@ -1,3 +1,5 @@
+"""Binary parameter-mask construction for sparse federated updates."""
+
 from typing import Dict
 
 import torch
@@ -24,9 +26,7 @@ def validate_sparsity_ratio(
 def flatten_score_dictionary(
     scores: Dict[str, torch.Tensor],
 ) -> torch.Tensor:
-    """
-    Flatten all parameter score tensors into one vector.
-    """
+    """Flatten scores in parameter iteration order for global thresholding."""
 
     if not scores:
         raise ValueError(
@@ -49,7 +49,7 @@ def build_least_sensitive_mask(
     Build a binary mask that activates the least-sensitive parameters.
 
     The fraction of parameters kept active is controlled by
-    sparsity_ratio.
+    sparsity_ratio. Ties at the threshold may activate additional entries.
     """
 
     validate_sparsity_ratio(sparsity_ratio)
@@ -87,9 +87,7 @@ def build_most_sensitive_mask(
     sensitivity_scores: Dict[str, torch.Tensor],
     sparsity_ratio: float,
 ) -> Dict[str, torch.Tensor]:
-    """
-    Build a binary mask that activates the most-sensitive parameters.
-    """
+    """Activate the globally most-sensitive parameters by thresholding scores."""
 
     validate_sparsity_ratio(sparsity_ratio)
 
@@ -128,9 +126,7 @@ def build_lowest_magnitude_mask(
     model: nn.Module,
     sparsity_ratio: float,
 ) -> Dict[str, torch.Tensor]:
-    """
-    Build a mask that activates the lowest-magnitude parameters.
-    """
+    """Use absolute parameter values as scores and keep the lowest values."""
 
     validate_sparsity_ratio(sparsity_ratio)
 
@@ -150,9 +146,7 @@ def build_highest_magnitude_mask(
     model: nn.Module,
     sparsity_ratio: float,
 ) -> Dict[str, torch.Tensor]:
-    """
-    Build a mask that activates the highest-magnitude parameters.
-    """
+    """Use absolute parameter values as scores and keep the highest values."""
 
     validate_sparsity_ratio(sparsity_ratio)
 
@@ -173,9 +167,7 @@ def build_random_mask(
     sparsity_ratio: float,
     seed: int = 42,
 ) -> Dict[str, torch.Tensor]:
-    """
-    Build a random binary mask over trainable parameters.
-    """
+    """Select a seeded, globally distributed subset of trainable entries."""
 
     validate_sparsity_ratio(sparsity_ratio)
 
@@ -244,9 +236,7 @@ def build_random_mask(
 def calculate_mask_statistics(
     gradient_mask: Dict[str, torch.Tensor],
 ) -> Dict[str, float]:
-    """
-    Calculate the number and fraction of active mask entries.
-    """
+    """Report total, active, and zero entries for experiment logging."""
 
     if not gradient_mask:
         raise ValueError(

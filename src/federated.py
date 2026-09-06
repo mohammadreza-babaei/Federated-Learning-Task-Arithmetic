@@ -1,3 +1,5 @@
+"""Federated training orchestration and sparse-mask calibration."""
+
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -44,8 +46,8 @@ def save_training_checkpoint(
     """
     Save the latest federated training state.
 
-    This checkpoint is used to resume training from the next
-    communication round.
+    In sparse mode it also stores the calibrated mask and summary. The
+    sampling generator state preserves the client-selection sequence.
     """
 
     path = Path(checkpoint_path)
@@ -90,8 +92,9 @@ def build_gradient_mask(
     """
     Build a gradient mask for sparse fine-tuning.
 
-    Sensitivity-based strategies use the diagonal Fisher approximation.
-    Magnitude-based and random strategies do not require Fisher scores.
+    Sensitivity-based strategies use averaged diagonal-Fisher estimates.
+    Magnitude-based strategies rank current parameter magnitudes, and random
+    selection uses a seeded generator without calibration data.
     """
 
     if mask_strategy not in SUPPORTED_MASK_STRATEGIES:
@@ -146,6 +149,7 @@ def build_gradient_mask(
 
     criterion = nn.CrossEntropyLoss()
 
+    # Reuse client loaders cyclically to collect calibration views.
     sensitivity_rounds = []
 
     for calibration_round in range(calibration_rounds):
@@ -229,6 +233,17 @@ def train_federated(
     When resume_path is provided, the global model, history,
     best validation accuracy and client-sampling generator state
     are restored. Training continues from the next round.
+
+    Args:
+        global_model: Initial or resumed server model.
+        client_loaders: One training DataLoader per client.
+        validation_loader, test_loader: Server-side evaluation loaders.
+        local_steps: Number J of mini-batch updates per selected client.
+        client_fraction: Fraction of clients sampled in each round.
+        use_sparse_sgd: Whether to calibrate and apply a shared gradient mask.
+
+    Returns the final global model, round history, evaluation metrics, and
+    sparse-mask metadata when sparse training is enabled.
     """
 
     if rounds <= 0:
@@ -285,7 +300,7 @@ def train_federated(
     generator.manual_seed(seed)
 
     # =========================================================
-    # Load resume checkpoint
+    # Restore the global state before sampling any new communication round.
     # =========================================================
 
     if resume_path is not None:
@@ -436,7 +451,7 @@ def train_federated(
             )
 
     # =========================================================
-    # Build sparse gradient mask for new runs
+    # Calibrate once before round one; the same mask is shared by all clients.
     # =========================================================
 
     if use_sparse_sgd and gradient_mask is None:
@@ -534,7 +549,8 @@ def train_federated(
         )
 
     # =========================================================
-    # Federated training rounds
+    # Each round broadcasts one state, performs J local updates, aggregates,
+    # and validates the resulting global model.
     # =========================================================
 
     for round_idx in range(start_round, rounds):
@@ -739,7 +755,7 @@ def train_federated(
         )
 
     # =========================================================
-    # Load best checkpoint for final test evaluation
+    # Test only the validation-selected global state after training finishes.
     # =========================================================
 
     if not checkpoint_path_object.exists():

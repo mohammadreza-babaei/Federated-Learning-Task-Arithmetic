@@ -1,3 +1,5 @@
+"""Server-side distribution and FedAvg state management."""
+
 from typing import List
 
 import torch
@@ -8,8 +10,7 @@ from src.aggregation import fedavg, update_global_model
 
 class FederatedServer:
     """
-    Federated learning server.
-    Responsible for maintaining the global model and aggregating
+    Federated learning server that maintains the global model and aggregates
     client updates using FedAvg.
     """
 
@@ -24,7 +25,7 @@ class FederatedServer:
 
     def distribute(self, clients) -> None:
         """
-        Send the current global model to every client.
+        Broadcast the current global state to the selected clients.
         """
 
         for client in clients:
@@ -35,7 +36,7 @@ class FederatedServer:
         client_models: List[nn.Module],
     ) -> None:
         """
-        Aggregate client models using FedAvg.
+        Average selected client states and install the result globally.
         """
 
         averaged_state = fedavg(client_models)

@@ -1,3 +1,5 @@
+"""Evaluate saved best checkpoints on the common CIFAR-100 test split."""
+
 from pathlib import Path
 import csv
 
@@ -14,13 +16,14 @@ OUTPUT_PATH = Path("experiments/checkpoint_metrics.csv")
 
 
 def main() -> None:
+    """Load each best checkpoint, evaluate it, and write a metrics CSV."""
     device = torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
     )
 
     print(f"Device: {device}")
 
-    # Same dataset configuration used in our experiments.
+    # Use the same deterministic dataset configuration as the training runs.
     _, _, test_loader = build_cifar100_dataloaders(
         data_root="./data",
         batch_size=32,
@@ -127,7 +130,7 @@ def main() -> None:
             f"{test_metrics['accuracy']:.6f}"
         )
 
-        # Free GPU memory before loading next checkpoint.
+        # Release the current model before loading the next checkpoint.
         del model
 
         if torch.cuda.is_available():

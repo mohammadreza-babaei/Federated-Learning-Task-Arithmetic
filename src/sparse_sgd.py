@@ -1,3 +1,5 @@
+"""SparseSGDM: momentum SGD restricted by a binary parameter mask."""
+
 from typing import Dict, Iterable, Optional
 
 import torch
@@ -6,8 +8,7 @@ from torch.optim import Optimizer
 
 
 class SparseSGDM(Optimizer):
-    """
-    SGD with momentum and a parameter-wise gradient mask.
+    """SGD with momentum and a parameter-wise gradient mask.
 
     Mask value:
         1 -> parameter can be updated
@@ -128,7 +129,7 @@ class SparseSGDM(Optimizer):
         closure: Optional[callable] = None,
     ) -> Optional[Tensor]:
         """
-        Perform one SparseSGDM optimization step.
+        Perform one masked SGDM update for each parameter with a gradient.
         """
 
         loss = None

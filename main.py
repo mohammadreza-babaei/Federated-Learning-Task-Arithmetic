@@ -1,3 +1,5 @@
+"""Command-line entry point for CIFAR-100 centralized and federated runs."""
+
 import argparse
 import random
 from pathlib import Path
@@ -15,7 +17,7 @@ from src.federated import train_federated
 
 
 def parse_args() -> argparse.Namespace:
-    """Read command-line arguments."""
+    """Parse dataset, model, optimization, and experiment CLI settings."""
 
     parser = argparse.ArgumentParser(
         description=(
@@ -418,7 +420,7 @@ def parse_args() -> argparse.Namespace:
 def select_device(
     requested_device: str,
 ) -> torch.device:
-    """Select CPU or CUDA."""
+    """Resolve the requested execution device, validating explicit CUDA use."""
 
     if requested_device == "cpu":
         return torch.device("cpu")
@@ -438,7 +440,7 @@ def select_device(
 
 
 def set_random_seed(seed: int) -> None:
-    """Set random seeds for reproducible experiments."""
+    """Seed Python, NumPy, and PyTorch sources of experiment randomness."""
 
     random.seed(seed)
     np.random.seed(seed)
@@ -455,7 +457,7 @@ def set_random_seed(seed: int) -> None:
 def create_checkpoint_directories(
     args: argparse.Namespace,
 ) -> None:
-    """Create all output directories when needed."""
+    """Create parent directories for histories and checkpoint files."""
 
     output_paths = [
         Path(args.checkpoint_path),
@@ -516,7 +518,7 @@ def validate_resume_path(
 def validate_arguments(
     args: argparse.Namespace,
 ) -> None:
-    """Validate command-line arguments."""
+    """Validate argument ranges and mode-specific combinations."""
 
     if args.num_clients <= 0:
         raise ValueError(
@@ -698,7 +700,7 @@ def print_general_configuration(
     args: argparse.Namespace,
     device: torch.device,
 ) -> None:
-    """Print the general experiment configuration."""
+    """Print reproducibility, model, and optimization settings."""
 
     print("=" * 60)
     print("DINO ViT-S/16 on CIFAR-100")
@@ -731,7 +733,11 @@ def print_general_configuration(
 
 
 def main() -> None:
-    """Run centralized or federated CIFAR-100 training."""
+    """Build the experiment and dispatch centralized or federated training.
+
+    Both modes share dataset creation and model construction; federated mode
+    additionally partitions the training subset into client DataLoaders.
+    """
 
     args = parse_args()
 
@@ -799,9 +805,7 @@ def main() -> None:
         f"{trainable_parameters:,}"
     )
 
-    # =========================================================
-    # Centralized training
-    # =========================================================
+    # Centralized mode uses one optimizer over the complete training subset.
 
     if args.mode == "centralized":
         print("\nStarting centralized training...")
@@ -882,9 +886,7 @@ def main() -> None:
 
         return
 
-    # =========================================================
-    # Federated training
-    # =========================================================
+    # Federated mode partitions the training subset before creating clients.
 
     selected_clients_per_round = max(
         1,
